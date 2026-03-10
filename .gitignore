@@ -1,0 +1,43 @@
+
+__pycache__/
+.claude/
+.coverage
+.DS_Store
+.eggs/
+.env
+.env.local
+.env.production
+.idea/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.vscode/
+*.egg
+*.egg-info/
+*.log
+*.py[cod]
+*.pyc
+*.so
+*.swo
+*.swp
+*.whl
+*~
+*$py.class
+# Alembic
+# Docker
+# Environment
+# IDE
+# Logs
+# OS
+# Python
+# Test / Coverage
+# Virtual environments
+build/
+dist/
+docker-compose.override.yml
+env/
+htmlcov/
+migrations/versions/__pycache__/
+Thumbs.db
+venv/
