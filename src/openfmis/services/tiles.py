@@ -1,7 +1,7 @@
 """TileServingService — serve PostGIS geometry as Mapbox Vector Tiles (MVT).
 
 Each endpoint pattern:  /tiles/{layer}/{z}/{x}/{y}.mvt
-Supported layers: fields, clu, plss_townships, plss_sections, analysis_zones
+Supported layers: fields, clu, plss_townships, plss_sections
 
 Tiles are built server-side with ST_AsMVT + ST_TileEnvelope.
 No external tile server required.
@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 MAX_ZOOM = 18
 MIN_ZOOM = 4
 
-VALID_LAYERS = {"fields", "clu", "plss_townships", "plss_sections", "analysis_zones"}
+VALID_LAYERS = {"fields", "clu", "plss_townships", "plss_sections"}
 
 
 class TileService:
@@ -137,26 +137,6 @@ def _build_tile_sql(layer: str, z: int, x: int, y: int) -> str:
                 AND ST_Intersects(s.geom, ST_Transform({envelope}, 4326))
         )
         SELECT ST_AsMVT(tile, 'plss_sections', 4096, 'geom') FROM tile
-        """
-
-    if layer == "analysis_zones":
-        return f"""
-        WITH tile AS (
-            SELECT
-                az.id::text           AS id,
-                az.field_id::text     AS field_id,
-                az.name,
-                ST_AsMVTGeom(
-                    ST_Transform(az.geometry, 3857),
-                    {envelope},
-                    4096, 64, true
-                ) AS geom
-            FROM analysis_zones az
-            WHERE
-                az.geometry IS NOT NULL
-                AND ST_Intersects(az.geometry, ST_Transform({envelope}, 4326))
-        )
-        SELECT ST_AsMVT(tile, 'analysis_zones', 4096, 'geom') FROM tile
         """
 
     raise ValueError(f"No SQL builder for layer: {layer}")

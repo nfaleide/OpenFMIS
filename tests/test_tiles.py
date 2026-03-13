@@ -149,13 +149,6 @@ async def test_tile_plss_sections_runs(db_session: AsyncSession):
     assert result is None or isinstance(result, bytes)
 
 
-@pytest.mark.asyncio
-async def test_tile_analysis_zones_runs(db_session: AsyncSession):
-    svc = TileService(db_session)
-    result = await svc.get_tile("analysis_zones", Z, X, Y)
-    assert result is None or isinstance(result, bytes)
-
-
 # ── API endpoint tests ────────────────────────────────────────────────────────
 
 
