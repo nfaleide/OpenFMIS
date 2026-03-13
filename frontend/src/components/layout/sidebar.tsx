@@ -8,19 +8,12 @@ import {
   Leaf,
   LayoutDashboard,
   Map,
-  Satellite,
-  BarChart3,
-  Layers,
   LogOut,
-  Settings,
 } from "lucide-react";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/fields", label: "Fields", icon: Map },
-  { href: "/scenes", label: "Scene Search", icon: Satellite },
-  { href: "/analysis", label: "Analysis", icon: BarChart3 },
-  { href: "/batch", label: "Batch Analysis", icon: Layers },
 ];
 
 export function Sidebar() {
@@ -66,16 +59,6 @@ export function Sidebar() {
             </Link>
           );
         })}
-
-        {/* Satshot Plugin Section */}
-        <div className="pt-4 mt-4 border-t border-gray-200">
-          <div className="flex items-center gap-2 px-3 py-1">
-            <Satellite className="w-3.5 h-3.5 text-satshot-500" />
-            <span className="text-[10px] font-semibold text-satshot-600 uppercase tracking-wider">
-              Satshot Plugin
-            </span>
-          </div>
-        </div>
       </nav>
 
       {/* User */}
