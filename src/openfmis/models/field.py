@@ -41,12 +41,25 @@ class Field(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
         index=True,
     )
 
+    # Primary region (farm) this field belongs to
+    region_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("regions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     # Created by which user
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id"),
         nullable=True,
     )
+
+    # FSA / CLU identifiers
+    fsa_tract: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    fsa_field: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    clu_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
 
     # Version chain — points to the field this version supersedes
     supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -67,6 +80,7 @@ class Field(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
 
     # Relationships
     group = relationship("Group", lazy="selectin")
+    region = relationship("Region", lazy="selectin")
     creator = relationship("User", lazy="selectin")
     supersedes = relationship("Field", remote_side="Field.id", lazy="selectin")
 

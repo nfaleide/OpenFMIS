@@ -21,10 +21,20 @@ class RegionRead(BaseModel):
     model_config = {"from_attributes": True, "populate_by_name": True}
 
 
+class RegionAccessibility(BaseModel):
+    """What the requesting user can do with this region."""
+
+    can_read: bool = True
+    can_modify: bool = False
+    can_delete: bool = False
+
+
 class RegionReadWithFields(RegionRead):
-    """Includes field IDs of members."""
+    """Includes field IDs of members, total area, and accessibility."""
 
     field_ids: list[UUID] = []
+    total_area_acres: float | None = None
+    accessibility: RegionAccessibility | None = None
 
 
 class RegionCreate(BaseModel):
@@ -62,3 +72,23 @@ class RegionMemberRemove(BaseModel):
 class RegionList(BaseModel):
     items: list[RegionRead]
     total: int
+
+
+class AccessibleRegionItem(BaseModel):
+    """A region with its accessible field count and field IDs."""
+
+    id: UUID
+    name: str
+    description: str | None = None
+    group_id: UUID
+    is_private: bool
+    field_count: int
+    field_ids: list[UUID]
+
+
+class AccessibleSet(BaseModel):
+    """Full accessible set for a user: regions + fields + counts."""
+
+    regions: list[AccessibleRegionItem]
+    total_regions: int
+    total_fields: int

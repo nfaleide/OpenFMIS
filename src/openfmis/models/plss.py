@@ -28,6 +28,7 @@ class PLSSTownship(Base):
     label: Mapped[str | None] = mapped_column(String(100), nullable=True)
     source: Mapped[str | None] = mapped_column(String(20), nullable=True)
     fips_c: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # geoalchemy2 auto-creates a GIST index for Geometry columns
     geom: Mapped[str | None] = mapped_column(
         Geometry(geometry_type="MULTIPOLYGON", srid=4326), nullable=True

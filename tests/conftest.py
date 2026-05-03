@@ -37,6 +37,9 @@ async def setup_database():
     async with test_engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
         await conn.run_sync(Base.metadata.drop_all)
+        # Drop orphaned enum types left behind by drop_all (tables gone, types remain)
+        for enum_name in ("sampling_algorithm_enum", "sampling_plan_status_enum"):
+            await conn.execute(text(f"DROP TYPE IF EXISTS {enum_name}"))
         await conn.run_sync(Base.metadata.create_all)
     yield
     async with test_engine.begin() as conn:
@@ -81,8 +84,8 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 
 
 @pytest_asyncio.fixture
-async def test_user(db_session: AsyncSession):
-    """Create a test user with known credentials."""
+async def test_user(db_session: AsyncSession, test_group):
+    """Create a test user with known credentials, belonging to test_group."""
     from openfmis.models.user import User
 
     user = User(
@@ -93,10 +96,125 @@ async def test_user(db_session: AsyncSession):
         full_name="Test User",
         is_active=True,
         is_superuser=False,
+        group_id=test_group.id,
     )
     db_session.add(user)
     await db_session.flush()
     return user
+
+
+@pytest_asyncio.fixture
+async def auth_headers(client: AsyncClient, test_user) -> dict[str, str]:
+    """Login as test_user and return Authorization headers."""
+    resp = await client.post(
+        "/api/v1/login",
+        json={"username": "testuser", "password": "testpassword123"},
+    )
+    assert resp.status_code == 200
+    token = resp.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest_asyncio.fixture
+async def test_group(db_session: AsyncSession):
+    """Create a test group with full field permissions."""
+    from openfmis.models.group import Group
+    from openfmis.models.privilege import GroupPrivilege
+
+    group = Group(id=uuid.uuid4(), name="FarmCo")
+    db_session.add(group)
+    await db_session.flush()
+
+    # Grant full field permissions so API tests work with ACL enforcement
+    priv = GroupPrivilege(
+        id=uuid.uuid4(),
+        group_id=group.id,
+        resource_type="fields",
+        resource_id=None,
+        permissions={
+            "fields.read": "GRANT",
+            "fields.create": "GRANT",
+            "fields.modify": "GRANT",
+            "fields.delete": "GRANT",
+        },
+    )
+    db_session.add(priv)
+    # Grant full region permissions
+    region_priv = GroupPrivilege(
+        id=uuid.uuid4(),
+        group_id=group.id,
+        resource_type="regions",
+        resource_id=None,
+        permissions={
+            "regions.read": "GRANT",
+            "regions.create": "GRANT",
+            "regions.modify": "GRANT",
+            "regions.delete": "GRANT",
+        },
+    )
+    db_session.add(region_priv)
+    # Grant full fielddata permissions
+    fielddata_priv = GroupPrivilege(
+        id=uuid.uuid4(),
+        group_id=group.id,
+        resource_type="fielddata",
+        resource_id=None,
+        permissions={
+            "fielddata.read": "GRANT",
+            "fielddata.append": "GRANT",
+            "fielddata.modify": "GRANT",
+        },
+    )
+    db_session.add(fielddata_priv)
+    # Grant group admin permissions (equipment CRUD etc.)
+    group_admin_priv = GroupPrivilege(
+        id=uuid.uuid4(),
+        group_id=group.id,
+        resource_type="groups",
+        resource_id=None,
+        permissions={
+            "change_group_settings": "GRANT",
+            "change_object_acls": "GRANT",
+        },
+    )
+    db_session.add(group_admin_priv)
+    await db_session.flush()
+    return group
+
+
+@pytest_asyncio.fixture
+async def test_region(db_session: AsyncSession, test_group):
+    """Create a test region (farm)."""
+    from openfmis.models.region import Region
+
+    region = Region(id=uuid.uuid4(), name="Home Farm", group_id=test_group.id)
+    db_session.add(region)
+    await db_session.flush()
+    return region
+
+
+@pytest_asyncio.fixture
+async def test_field(db_session: AsyncSession, test_group, test_region):
+    """Create a test field with a simple square geometry for spatial tests."""
+    from openfmis.models.field import Field
+
+    wkt = (
+        "SRID=4326;MULTIPOLYGON((("
+        "-97.0 40.0, -97.009 40.0, -97.009 40.009, -97.0 40.009, -97.0 40.0"
+        ")))"
+    )
+    field = Field(
+        id=uuid.uuid4(),
+        name="Test Field",
+        group_id=test_group.id,
+        region_id=test_region.id,
+        version=1,
+        is_current=True,
+        geometry=wkt,
+    )
+    db_session.add(field)
+    await db_session.flush()
+    return field
 
 
 @pytest_asyncio.fixture

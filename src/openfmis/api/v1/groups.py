@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openfmis.database import get_db
 from openfmis.dependencies import get_current_user
+from openfmis.exceptions import AuthorizationError
 from openfmis.models.user import User
 from openfmis.schemas.group import (
     GroupAncestry,
@@ -16,12 +17,13 @@ from openfmis.schemas.group import (
     GroupRead,
     GroupUpdate,
 )
+from openfmis.services.acl import ACLService
 from openfmis.services.group import GroupService
 
 router = APIRouter(prefix="/groups", tags=["groups"])
 
 
-@router.get("", response_model=GroupList)
+@router.get("", response_model=GroupList, summary="List groups")
 async def list_groups(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
@@ -37,7 +39,7 @@ async def list_groups(
     return GroupList(items=[GroupRead.model_validate(g) for g in groups], total=total)
 
 
-@router.get("/tree")
+@router.get("/tree", summary="Get group tree")
 async def get_group_tree(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
@@ -48,7 +50,7 @@ async def get_group_tree(
     return await svc.get_tree(root_id)
 
 
-@router.get("/{group_id}", response_model=GroupRead)
+@router.get("/{group_id}", response_model=GroupRead, summary="Get group")
 async def get_group(
     group_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -59,7 +61,7 @@ async def get_group(
     return GroupRead.model_validate(group)
 
 
-@router.get("/{group_id}/ancestors", response_model=GroupAncestry)
+@router.get("/{group_id}/ancestors", response_model=GroupAncestry, summary="Get ancestors")
 async def get_ancestors(
     group_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -70,7 +72,7 @@ async def get_ancestors(
     return GroupAncestry(ancestors=[GroupRead.model_validate(g) for g in ancestors])
 
 
-@router.get("/{group_id}/descendants", response_model=list[GroupRead])
+@router.get("/{group_id}/descendants", response_model=list[GroupRead], summary="Get descendants")
 async def get_descendants(
     group_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -81,34 +83,47 @@ async def get_descendants(
     return [GroupRead.model_validate(g) for g in descendants]
 
 
-@router.post("", response_model=GroupRead, status_code=201)
+@router.post("", response_model=GroupRead, status_code=201, summary="Create group")
 async def create_group(
     body: GroupCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> GroupRead:
+    await _require_group_admin(db, current_user)
     svc = GroupService(db)
     group = await svc.create_group(body)
     return GroupRead.model_validate(group)
 
 
-@router.patch("/{group_id}", response_model=GroupRead)
+@router.patch("/{group_id}", response_model=GroupRead, summary="Update group")
 async def update_group(
     group_id: UUID,
     body: GroupUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> GroupRead:
+    await _require_group_admin(db, current_user)
     svc = GroupService(db)
     group = await svc.update_group(group_id, body)
     return GroupRead.model_validate(group)
 
 
-@router.delete("/{group_id}", status_code=204)
+@router.delete("/{group_id}", status_code=204, summary="Delete group")
 async def delete_group(
     group_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> None:
+    await _require_group_admin(db, current_user)
     svc = GroupService(db)
     await svc.soft_delete(group_id)
+
+
+async def _require_group_admin(db: AsyncSession, user: User) -> None:
+    """Require change_group_settings permission or superuser."""
+    if user.is_superuser:
+        return
+    acl = ACLService(db)
+    allowed = await acl.check_permission(user, "change_group_settings", "groups")
+    if not allowed:
+        raise AuthorizationError("Permission 'change_group_settings' required")

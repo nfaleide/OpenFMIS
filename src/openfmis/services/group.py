@@ -87,7 +87,32 @@ class GroupService:
     async def soft_delete(self, group_id: UUID) -> None:
         from datetime import UTC, datetime
 
+        from openfmis.models.user import User
+
         group = await self.get_by_id(group_id)
+
+        # Block deletion if group has active children
+        child_count = await self.db.execute(
+            select(func.count())
+            .select_from(Group)
+            .where(Group.parent_id == group_id, Group.deleted_at.is_(None))
+        )
+        if child_count.scalar_one() > 0:
+            raise ValidationError(
+                "Cannot delete group with active child groups. Delete or reassign children first."
+            )
+
+        # Block deletion if group has active users
+        user_count = await self.db.execute(
+            select(func.count())
+            .select_from(User)
+            .where(User.group_id == group_id, User.deleted_at.is_(None))
+        )
+        if user_count.scalar_one() > 0:
+            raise ValidationError(
+                "Cannot delete group with active users. Reassign or deactivate users first."
+            )
+
         group.deleted_at = datetime.now(UTC)
         await self.db.flush()
 

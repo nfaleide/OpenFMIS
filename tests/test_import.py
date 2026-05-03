@@ -14,6 +14,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openfmis.models.group import Group
+from openfmis.models.region import Region
 from openfmis.models.user import User
 from openfmis.security.password import hash_password
 from openfmis.services.import_ import ImportService
@@ -61,7 +62,15 @@ async def test_group(db_session: AsyncSession) -> Group:
 
 
 @pytest.fixture
-async def test_user(db_session: AsyncSession) -> User:
+async def test_region(db_session: AsyncSession, test_group: Group) -> Region:
+    region = Region(id=uuid.uuid4(), name="Test Farm", group_id=test_group.id)
+    db_session.add(region)
+    await db_session.flush()
+    return region
+
+
+@pytest.fixture
+async def test_user(db_session: AsyncSession, test_group: Group) -> User:
     user = User(
         id=uuid.uuid4(),
         username="importuser",
@@ -70,6 +79,7 @@ async def test_user(db_session: AsyncSession) -> User:
         full_name="Import User",
         is_active=True,
         is_superuser=False,
+        group_id=test_group.id,
     )
     db_session.add(user)
     await db_session.flush()
@@ -157,7 +167,7 @@ def _make_csv_bytes(rows: list[dict], columns: list[str]) -> bytes:
 
 @pytest.mark.asyncio
 async def test_import_geojson_multipolygon(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     content = _make_geojson_bytes(
         [
@@ -173,6 +183,7 @@ async def test_import_geojson_multipolygon(
         file_content=content,
         filename="fields.geojson",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 1
@@ -183,7 +194,7 @@ async def test_import_geojson_multipolygon(
 
 @pytest.mark.asyncio
 async def test_import_geojson_polygon_normalised(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     """Polygon geometries should be normalised to MultiPolygon."""
     content = _make_geojson_bytes(
@@ -200,6 +211,7 @@ async def test_import_geojson_polygon_normalised(
         file_content=content,
         filename="fields.geojson",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 1
@@ -208,7 +220,7 @@ async def test_import_geojson_polygon_normalised(
 
 @pytest.mark.asyncio
 async def test_import_geojson_multiple_features(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     content = _make_geojson_bytes(
         [
@@ -221,6 +233,7 @@ async def test_import_geojson_multiple_features(
         file_content=content,
         filename="fields.geojson",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 5
@@ -229,7 +242,7 @@ async def test_import_geojson_multiple_features(
 
 @pytest.mark.asyncio
 async def test_import_geojson_point_skipped(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     """Point geometries are not polygons — should be skipped."""
     content = _make_geojson_bytes(
@@ -246,6 +259,7 @@ async def test_import_geojson_point_skipped(
         file_content=content,
         filename="fields.geojson",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 0
@@ -255,7 +269,7 @@ async def test_import_geojson_point_skipped(
 
 @pytest.mark.asyncio
 async def test_import_geojson_name_fallback(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     """When no name property found, falls back to 'Field N'."""
     content = _make_geojson_bytes(
@@ -268,6 +282,7 @@ async def test_import_geojson_name_fallback(
         file_content=content,
         filename="fields.geojson",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 1
@@ -277,7 +292,9 @@ async def test_import_geojson_name_fallback(
 
 
 @pytest.mark.asyncio
-async def test_import_shapefile_zip(db_session: AsyncSession, test_group: Group, test_user: User):
+async def test_import_shapefile_zip(
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
+):
     zip_bytes = _make_shapefile_zip(
         [
             {"geometry": KANSAS_FIELD_MP, "properties": {"name": "SHP Field 1"}},
@@ -289,6 +306,7 @@ async def test_import_shapefile_zip(db_session: AsyncSession, test_group: Group,
         file_content=zip_bytes,
         filename="fields.zip",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 2
@@ -298,7 +316,7 @@ async def test_import_shapefile_zip(db_session: AsyncSession, test_group: Group,
 
 @pytest.mark.asyncio
 async def test_import_shapefile_custom_name_field(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     zip_bytes = _make_shapefile_zip(
         [{"geometry": KANSAS_FIELD_MP, "properties": {"parcel": "Far North"}}],
@@ -309,6 +327,7 @@ async def test_import_shapefile_custom_name_field(
         file_content=zip_bytes,
         filename="fields.zip",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
         name_field="parcel",
     )
@@ -317,13 +336,14 @@ async def test_import_shapefile_custom_name_field(
 
 @pytest.mark.asyncio
 async def test_import_shapefile_invalid_zip(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     svc = ImportService(db_session)
     result = await svc.import_vector(
         file_content=b"not a zip",
         filename="bad.zip",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 0
@@ -334,13 +354,16 @@ async def test_import_shapefile_invalid_zip(
 
 
 @pytest.mark.asyncio
-async def test_import_kml(db_session: AsyncSession, test_group: Group, test_user: User):
+async def test_import_kml(
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
+):
     kml_bytes = _make_kml_bytes([{"name": "KML Field"}])
     svc = ImportService(db_session)
     result = await svc.import_vector(
         file_content=kml_bytes,
         filename="fields.kml",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 1
@@ -351,7 +374,9 @@ async def test_import_kml(db_session: AsyncSession, test_group: Group, test_user
 
 
 @pytest.mark.asyncio
-async def test_import_csv_wkt(db_session: AsyncSession, test_group: Group, test_user: User):
+async def test_import_csv_wkt(
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
+):
     from shapely.geometry import shape
 
     wkt = shape(KANSAS_FIELD_MP).wkt
@@ -364,6 +389,7 @@ async def test_import_csv_wkt(db_session: AsyncSession, test_group: Group, test_
         file_content=csv_bytes,
         filename="fields.csv",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 1
@@ -371,7 +397,9 @@ async def test_import_csv_wkt(db_session: AsyncSession, test_group: Group, test_
 
 
 @pytest.mark.asyncio
-async def test_import_csv_lat_lon(db_session: AsyncSession, test_group: Group, test_user: User):
+async def test_import_csv_lat_lon(
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
+):
     csv_bytes = _make_csv_bytes(
         [{"name": "Point Field", "lat": "38.005", "lon": "-97.995"}],
         columns=["name", "lat", "lon"],
@@ -381,6 +409,7 @@ async def test_import_csv_lat_lon(db_session: AsyncSession, test_group: Group, t
         file_content=csv_bytes,
         filename="points.csv",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 1
@@ -388,7 +417,7 @@ async def test_import_csv_lat_lon(db_session: AsyncSession, test_group: Group, t
 
 @pytest.mark.asyncio
 async def test_import_csv_missing_geometry_column(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     csv_bytes = _make_csv_bytes(
         [{"name": "No Geom", "value": "42"}],
@@ -399,6 +428,7 @@ async def test_import_csv_missing_geometry_column(
         file_content=csv_bytes,
         filename="nogeom.csv",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 0
@@ -410,13 +440,14 @@ async def test_import_csv_missing_geometry_column(
 
 @pytest.mark.asyncio
 async def test_import_unsupported_format(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     svc = ImportService(db_session)
     result = await svc.import_vector(
         file_content=b"data",
         filename="fields.gpkg",
         group_id=test_group.id,
+        region_id=test_region.id,
         created_by=test_user.id,
     )
     assert result.created == 0
@@ -429,7 +460,9 @@ async def test_import_unsupported_format(
 
 
 @pytest.mark.asyncio
-async def test_api_import_geojson(client: AsyncClient, test_user: User, test_group: Group):
+async def test_api_import_geojson(
+    client: AsyncClient, test_user: User, test_group: Group, test_region: Region
+):
     token = await _login(client)
     content = _make_geojson_bytes(
         [
@@ -443,7 +476,7 @@ async def test_api_import_geojson(client: AsyncClient, test_user: User, test_gro
     resp = await client.post(
         "/api/v1/import/vector",
         headers={"Authorization": f"Bearer {token}"},
-        data={"group_id": str(test_group.id)},
+        data={"group_id": str(test_group.id), "region_id": str(test_region.id)},
         files={"file": ("fields.geojson", content, "application/geo+json")},
     )
     assert resp.status_code == 200
@@ -454,7 +487,9 @@ async def test_api_import_geojson(client: AsyncClient, test_user: User, test_gro
 
 
 @pytest.mark.asyncio
-async def test_api_import_shapefile(client: AsyncClient, test_user: User, test_group: Group):
+async def test_api_import_shapefile(
+    client: AsyncClient, test_user: User, test_group: Group, test_region: Region
+):
     token = await _login(client)
     zip_bytes = _make_shapefile_zip(
         [
@@ -464,7 +499,7 @@ async def test_api_import_shapefile(client: AsyncClient, test_user: User, test_g
     resp = await client.post(
         "/api/v1/import/vector",
         headers={"Authorization": f"Bearer {token}"},
-        data={"group_id": str(test_group.id)},
+        data={"group_id": str(test_group.id), "region_id": str(test_region.id)},
         files={"file": ("fields.zip", zip_bytes, "application/zip")},
     )
     assert resp.status_code == 200
@@ -473,7 +508,9 @@ async def test_api_import_shapefile(client: AsyncClient, test_user: User, test_g
 
 
 @pytest.mark.asyncio
-async def test_api_import_requires_auth(client: AsyncClient, test_group: Group):
+async def test_api_import_requires_auth(
+    client: AsyncClient, test_group: Group, test_region: Region
+):
     content = _make_geojson_bytes(
         [
             {"type": "Feature", "geometry": KANSAS_FIELD_MP, "properties": {}},
@@ -481,7 +518,7 @@ async def test_api_import_requires_auth(client: AsyncClient, test_group: Group):
     )
     resp = await client.post(
         "/api/v1/import/vector",
-        data={"group_id": str(test_group.id)},
+        data={"group_id": str(test_group.id), "region_id": str(test_region.id)},
         files={"file": ("fields.geojson", content, "application/geo+json")},
     )
     assert resp.status_code == 401

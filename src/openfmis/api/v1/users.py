@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openfmis.database import get_db
 from openfmis.dependencies import get_current_user
+from openfmis.exceptions import AuthorizationError
 from openfmis.models.user import User
 from openfmis.schemas.user import (
     PasswordChange,
@@ -21,7 +22,7 @@ from openfmis.services.user import UserService
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-@router.get("", response_model=UserList)
+@router.get("", response_model=UserList, summary="List users")
 async def list_users(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
@@ -37,7 +38,7 @@ async def list_users(
     return UserList(items=[UserRead.model_validate(u) for u in users], total=total)
 
 
-@router.get("/{user_id}", response_model=UserRead)
+@router.get("/{user_id}", response_model=UserRead, summary="Get user")
 async def get_user(
     user_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -47,7 +48,7 @@ async def get_user(
     return await svc.get_by_id(user_id)
 
 
-@router.post("", response_model=UserRead, status_code=201)
+@router.post("", response_model=UserRead, status_code=201, summary="Create user")
 async def create_user(
     body: UserCreate,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -57,18 +58,33 @@ async def create_user(
     return await svc.create_user(body)
 
 
-@router.patch("/{user_id}", response_model=UserRead)
+@router.patch("/{user_id}", response_model=UserRead, summary="Update user")
 async def update_user(
     user_id: UUID,
     body: UserUpdate,
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> User:
+    if not current_user.is_superuser:
+        # Non-superusers can only update their own email and full_name
+        if body.is_superuser is not None:
+            raise AuthorizationError("Only superusers can modify superuser status")
+        if body.is_active is not None:
+            raise AuthorizationError("Only superusers can modify active status")
+        if body.group_id is not None:
+            raise AuthorizationError("Only superusers can change user group assignment")
+        # Non-superusers can only edit themselves
+        if user_id != current_user.id:
+            raise AuthorizationError("Cannot modify another user's profile")
+    else:
+        # Even superusers cannot grant themselves superuser (already have it)
+        # but block self-demotion guard: no-op, they can demote if they want
+        pass
     svc = UserService(db)
     return await svc.update_user(user_id, body)
 
 
-@router.post("/{user_id}/change-password", status_code=204)
+@router.post("/{user_id}/change-password", status_code=204, summary="Change password")
 async def change_password(
     user_id: UUID,
     body: PasswordChange,
@@ -79,7 +95,7 @@ async def change_password(
     await svc.change_password(user_id, body.current_password, body.new_password)
 
 
-@router.delete("/{user_id}", status_code=204)
+@router.delete("/{user_id}", status_code=204, summary="Delete user")
 async def delete_user(
     user_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],

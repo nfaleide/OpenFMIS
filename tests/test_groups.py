@@ -1,7 +1,16 @@
 """GroupService + Group API endpoint tests — including recursive CTE hierarchy."""
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from openfmis.exceptions import ValidationError
+from openfmis.models.group import Group
+from openfmis.models.user import User
+from openfmis.security.password import hash_password
+from openfmis.services.group import GroupService
 
 
 async def _login(client: AsyncClient) -> str:
@@ -243,3 +252,243 @@ async def test_prevent_circular_hierarchy(client: AsyncClient, test_user):
         json={"parent_id": c_id},
     )
     assert resp.status_code == 422
+
+
+# ── Group cascade behavior tests ─────────────────────────────────────────��───
+
+
+@pytest.mark.asyncio
+async def test_delete_group_with_children_blocked(db_session: AsyncSession):
+    """Cannot delete a group that has active child groups."""
+    svc = GroupService(db_session)
+    parent = Group(id=uuid.uuid4(), name="CascadeParent")
+    db_session.add(parent)
+    await db_session.flush()
+
+    child = Group(id=uuid.uuid4(), name="CascadeChild", parent_id=parent.id)
+    db_session.add(child)
+    await db_session.flush()
+
+    with pytest.raises(ValidationError, match="active child groups"):
+        await svc.soft_delete(parent.id)
+
+
+@pytest.mark.asyncio
+async def test_delete_group_with_users_blocked(db_session: AsyncSession):
+    """Cannot delete a group that has active users."""
+    svc = GroupService(db_session)
+    group = Group(id=uuid.uuid4(), name="UserGroup")
+    db_session.add(group)
+    await db_session.flush()
+
+    user = User(
+        id=uuid.uuid4(),
+        username="cascadeuser",
+        email="cascade@test.com",
+        password_hash=hash_password("pass123"),
+        full_name="Cascade User",
+        is_active=True,
+        is_superuser=False,
+        group_id=group.id,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    with pytest.raises(ValidationError, match="active users"):
+        await svc.soft_delete(group.id)
+
+
+@pytest.mark.asyncio
+async def test_delete_group_empty_succeeds(db_session: AsyncSession):
+    """Can delete a group with no children and no users."""
+    svc = GroupService(db_session)
+    group = Group(id=uuid.uuid4(), name="EmptyGroup")
+    db_session.add(group)
+    await db_session.flush()
+
+    await svc.soft_delete(group.id)
+    # Verify it's deleted
+    from openfmis.exceptions import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        await svc.get_by_id(group.id)
+
+
+@pytest.mark.asyncio
+async def test_delete_group_after_children_removed(db_session: AsyncSession):
+    """Can delete a parent group after its children have been soft-deleted."""
+    svc = GroupService(db_session)
+    parent = Group(id=uuid.uuid4(), name="ParentAfterRemove")
+    db_session.add(parent)
+    await db_session.flush()
+
+    child = Group(id=uuid.uuid4(), name="ChildToRemove", parent_id=parent.id)
+    db_session.add(child)
+    await db_session.flush()
+
+    # Delete the child first
+    await svc.soft_delete(child.id)
+    # Now parent should be deletable
+    await svc.soft_delete(parent.id)
+
+    from openfmis.exceptions import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        await svc.get_by_id(parent.id)
+
+
+@pytest.mark.asyncio
+async def test_api_delete_group_with_children_returns_422(client: AsyncClient, test_user):
+    """API returns 422 when trying to delete a group with children."""
+    token = await _login(client)
+    parent_resp = await client.post(
+        "/api/v1/groups", headers=_auth(token), json={"name": "APIParent"}
+    )
+    parent_id = parent_resp.json()["id"]
+
+    await client.post(
+        "/api/v1/groups",
+        headers=_auth(token),
+        json={"name": "APIChild", "parent_id": parent_id},
+    )
+
+    resp = await client.delete(f"/api/v1/groups/{parent_id}", headers=_auth(token))
+    assert resp.status_code == 422
+
+
+# ── Authorization guard tests ──────────────────────────────────────────────
+
+
+async def _login_as(
+    client: AsyncClient,
+    username: str,
+    password: str,
+) -> str:
+    resp = await client.post(
+        "/api/v1/login",
+        json={"username": username, "password": password},
+    )
+    assert resp.status_code == 200
+    return resp.json()["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_unprivileged_user_cannot_create_group(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    """A user without change_group_settings cannot create groups."""
+    # Create a group with NO group admin privileges
+    bare_group = Group(id=uuid.uuid4(), name="BareGroup")
+    db_session.add(bare_group)
+    await db_session.flush()
+
+    bare_user = User(
+        id=uuid.uuid4(),
+        username="bareuser",
+        password_hash=hash_password("barepass123"),
+        is_active=True,
+        is_superuser=False,
+        group_id=bare_group.id,
+    )
+    db_session.add(bare_user)
+    await db_session.flush()
+
+    token = await _login_as(client, "bareuser", "barepass123")
+    resp = await client.post(
+        "/api/v1/groups",
+        headers=_auth(token),
+        json={"name": "ShouldFail"},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_unprivileged_user_cannot_update_group(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    """A user without change_group_settings cannot update groups."""
+    bare_group = Group(id=uuid.uuid4(), name="BareGroup2")
+    db_session.add(bare_group)
+    await db_session.flush()
+
+    bare_user = User(
+        id=uuid.uuid4(),
+        username="bareuser2",
+        password_hash=hash_password("barepass123"),
+        is_active=True,
+        is_superuser=False,
+        group_id=bare_group.id,
+    )
+    db_session.add(bare_user)
+    await db_session.flush()
+
+    token = await _login_as(client, "bareuser2", "barepass123")
+    resp = await client.patch(
+        f"/api/v1/groups/{bare_group.id}",
+        headers=_auth(token),
+        json={"name": "Renamed"},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_unprivileged_user_cannot_delete_group(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    """A user without change_group_settings cannot delete groups."""
+    bare_group = Group(id=uuid.uuid4(), name="BareGroup3")
+    db_session.add(bare_group)
+    await db_session.flush()
+
+    bare_user = User(
+        id=uuid.uuid4(),
+        username="bareuser3",
+        password_hash=hash_password("barepass123"),
+        is_active=True,
+        is_superuser=False,
+        group_id=bare_group.id,
+    )
+    db_session.add(bare_user)
+    await db_session.flush()
+
+    token = await _login_as(client, "bareuser3", "barepass123")
+    resp = await client.delete(
+        f"/api/v1/groups/{bare_group.id}",
+        headers=_auth(token),
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_privileged_user_can_manage_groups(
+    client: AsyncClient,
+    test_user,
+):
+    """test_user has change_group_settings via test_group — can CRUD."""
+    token = await _login(client)
+    # Create
+    resp = await client.post(
+        "/api/v1/groups",
+        headers=_auth(token),
+        json={"name": "PrivTest"},
+    )
+    assert resp.status_code == 201
+    gid = resp.json()["id"]
+
+    # Update
+    resp = await client.patch(
+        f"/api/v1/groups/{gid}",
+        headers=_auth(token),
+        json={"name": "PrivTestRenamed"},
+    )
+    assert resp.status_code == 200
+
+    # Delete
+    resp = await client.delete(
+        f"/api/v1/groups/{gid}",
+        headers=_auth(token),
+    )
+    assert resp.status_code == 204

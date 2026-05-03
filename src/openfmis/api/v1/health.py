@@ -9,13 +9,13 @@ from openfmis.database import get_db
 router = APIRouter(prefix="/health", tags=["health"])
 
 
-@router.get("")
+@router.get("", summary="Health")
 async def health() -> dict[str, str]:
     """Liveness probe — always returns ok."""
     return {"status": "ok"}
 
 
-@router.get("/ready")
+@router.get("/ready", summary="Health ready")
 async def health_ready(db: AsyncSession = Depends(get_db)) -> dict[str, str]:
     """Readiness probe — checks PostGIS connectivity."""
     result = await db.execute(text("SELECT PostGIS_Version()"))

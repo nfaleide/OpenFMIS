@@ -88,6 +88,7 @@ class PriceItem(Base):
     operation: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
     credit_cost: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    module_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

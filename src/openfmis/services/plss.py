@@ -13,13 +13,29 @@ class PLSSService:
     def __init__(self, db: AsyncSession) -> None:
         self.db = db
 
+    async def get_counties_for_state(self, state: str) -> list[str]:
+        """Return distinct FIPS county codes for townships in a state."""
+        result = await self.db.execute(
+            select(PLSSTownship.fips_c)
+            .where(PLSSTownship.state == state.upper())
+            .where(PLSSTownship.fips_c.isnot(None))
+            .distinct()
+        )
+        codes: set[str] = set()
+        for row in result:
+            if row[0]:
+                for code in row[0].split():
+                    codes.add(code.strip())
+        return sorted(codes)
+
     async def search_townships(
         self,
         q: str | None = None,
         state: str | None = None,
+        fips_c: str | None = None,
         limit: int = 20,
     ) -> list[dict]:
-        """Search townships by label, lndkey, or state.
+        """Search townships by label, lndkey, state, or FIPS county code.
 
         q can be a partial label like '2S 5E' or a lndkey prefix like 'ND06'.
         """
@@ -28,6 +44,9 @@ class PLSSService:
         filters = []
         if state:
             filters.append(PLSSTownship.state == state.upper())
+
+        if fips_c:
+            filters.append(PLSSTownship.fips_c.ilike(f"%{fips_c}%"))
 
         if q:
             q_clean = q.strip()
@@ -57,10 +76,18 @@ class PLSSService:
         return _township_dict(row.PLSSTownship, row.geojson)
 
     async def get_sections_for_township(self, lndkey: str) -> list[dict]:
-        """Return all sections within a township identified by its lndkey prefix."""
+        """Return all sections within a township identified by its lndkey prefix.
+
+        Township lndkeys use format 'ND05T1580N0560W' while section lndkeys
+        use BLM PLSSID format 'ND051580N0560W0' (no T, trailing 0).
+        """
+        patterns = [lndkey]
+        if len(lndkey) > 5 and lndkey[4] == "T":
+            blm_key = lndkey[:4] + lndkey[5:] + "0"
+            patterns.append(blm_key)
         result = await self.db.execute(
             select(PLSSSection, ST_AsGeoJSON(PLSSSection.geom).label("geojson"))
-            .where(PLSSSection.lndkey.like(f"{lndkey}%"))
+            .where(or_(*[PLSSSection.lndkey.like(f"{p}%") for p in patterns]))
             .order_by(PLSSSection.sectn)
         )
         return [_section_dict(row.PLSSSection, row.geojson) for row in result]
@@ -113,33 +140,47 @@ class PLSSService:
 
     async def find_sections_at_point(self, lon: float, lat: float) -> list[dict]:
         """Return sections containing the given point."""
-        point_wkt = f"POINT({lon} {lat})"
+        point = func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)
         result = await self.db.execute(
             select(PLSSSection, ST_AsGeoJSON(PLSSSection.geom).label("geojson"))
-            .where(
-                ST_Intersects(
-                    PLSSSection.geom,
-                    func.ST_SetSRID(func.ST_GeomFromText(point_wkt), 4326),
-                )
-            )
+            .where(ST_Intersects(PLSSSection.geom, point))
             .limit(10)
         )
         return [_section_dict(row.PLSSSection, row.geojson) for row in result]
 
     async def find_townships_at_point(self, lon: float, lat: float) -> list[dict]:
         """Return townships containing the given point."""
-        point_wkt = f"POINT({lon} {lat})"
+        point = func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)
         result = await self.db.execute(
             select(PLSSTownship, ST_AsGeoJSON(PLSSTownship.geom).label("geojson"))
-            .where(
-                ST_Intersects(
-                    PLSSTownship.geom,
-                    func.ST_SetSRID(func.ST_GeomFromText(point_wkt), 4326),
-                )
-            )
+            .where(ST_Intersects(PLSSTownship.geom, point))
             .limit(5)
         )
         return [_township_dict(row.PLSSTownship, row.geojson) for row in result]
+
+    async def get_townships_by_bbox(
+        self, min_lon: float, min_lat: float, max_lon: float, max_lat: float, limit: int = 500
+    ) -> list[dict]:
+        """Return townships intersecting a bounding box."""
+        bbox = func.ST_SetSRID(func.ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat), 4326)
+        result = await self.db.execute(
+            select(PLSSTownship, ST_AsGeoJSON(PLSSTownship.geom).label("geojson"))
+            .where(ST_Intersects(PLSSTownship.geom, bbox))
+            .limit(limit)
+        )
+        return [_township_dict(row.PLSSTownship, row.geojson) for row in result]
+
+    async def get_sections_by_bbox(
+        self, min_lon: float, min_lat: float, max_lon: float, max_lat: float, limit: int = 2000
+    ) -> list[dict]:
+        """Return sections intersecting a bounding box."""
+        bbox = func.ST_SetSRID(func.ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat), 4326)
+        result = await self.db.execute(
+            select(PLSSSection, ST_AsGeoJSON(PLSSSection.geom).label("geojson"))
+            .where(ST_Intersects(PLSSSection.geom, bbox))
+            .limit(limit)
+        )
+        return [_section_dict(row.PLSSSection, row.geojson) for row in result]
 
     async def get_available_states(self) -> list[str]:
         """Return sorted list of states present in the plss_townships table."""
@@ -166,6 +207,7 @@ def _township_dict(t: PLSSTownship, geojson: str | None) -> dict:
         "range": t.range_,
         "rngdir": t.rngdir,
         "label": t.label,
+        "name": t.name,
         "source": t.source,
         "fips_c": t.fips_c,
         "geom": json.loads(geojson) if geojson else None,

@@ -8,7 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from openfmis.database import get_db
 from openfmis.dependencies import get_current_user
 from openfmis.models.user import User
-from openfmis.services.tiles import MAX_ZOOM, MIN_ZOOM, VALID_LAYERS, TileService
+from openfmis.services.tiles import (
+    MAX_ZOOM,
+    MIN_ZOOM,
+    VALID_LAYERS,
+    TileService,
+    list_plugin_tile_layers,
+)
 
 router = APIRouter(prefix="/tiles", tags=["tiles"])
 
@@ -22,6 +28,7 @@ MVT_CONTENT_TYPE = "application/vnd.mapbox-vector-tile"
         204: {"description": "Tile exists but contains no features"},
         404: {"description": "Unknown layer"},
     },
+    summary="Get tile",
 )
 async def get_tile(
     layer: str,
@@ -38,10 +45,11 @@ async def get_tile(
     Tiles use EPSG:3857 (Web Mercator) as required by the MVT spec.
     Add `Authorization: Bearer <token>` header to all requests.
     """
-    if layer not in VALID_LAYERS:
+    all_layers = VALID_LAYERS | set(list_plugin_tile_layers())
+    if layer not in all_layers:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Unknown layer '{layer}'. Valid layers: {sorted(VALID_LAYERS)}",
+            detail=f"Unknown layer '{layer}'. Valid layers: {sorted(all_layers)}",
         )
 
     svc = TileService(db)
@@ -61,9 +69,9 @@ async def get_tile(
     )
 
 
-@router.get("/layers", response_model=list[str])
+@router.get("/layers", response_model=list[str], summary="List layers")
 async def list_layers(
     current_user: Annotated[User, Depends(get_current_user)],
 ) -> list[str]:
-    """List available tile layers."""
-    return sorted(VALID_LAYERS)
+    """List available tile layers (core + plugin-registered)."""
+    return sorted(VALID_LAYERS | set(list_plugin_tile_layers()))

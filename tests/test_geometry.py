@@ -7,6 +7,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openfmis.models.group import Group
+from openfmis.models.region import Region
 from openfmis.schemas.field import FieldCreate
 from openfmis.services.field import FieldService
 from openfmis.services.geometry import GeometryService
@@ -80,10 +81,34 @@ def _auth(token: str) -> dict[str, str]:
 
 @pytest.fixture
 async def test_group(db_session: AsyncSession) -> Group:
+    from openfmis.models.privilege import GroupPrivilege
+
     group = Group(id=uuid.uuid4(), name="GeoCo")
     db_session.add(group)
     await db_session.flush()
+    priv = GroupPrivilege(
+        id=uuid.uuid4(),
+        group_id=group.id,
+        resource_type="fields",
+        resource_id=None,
+        permissions={
+            "fields.read": "GRANT",
+            "fields.create": "GRANT",
+            "fields.modify": "GRANT",
+            "fields.delete": "GRANT",
+        },
+    )
+    db_session.add(priv)
+    await db_session.flush()
     return group
+
+
+@pytest.fixture
+async def test_region(db_session: AsyncSession, test_group: Group) -> Region:
+    region = Region(id=uuid.uuid4(), name="Test Farm", group_id=test_group.id)
+    db_session.add(region)
+    await db_session.flush()
+    return region
 
 
 # ── Unit tests via GeometryService ─────────────────────────────
@@ -173,14 +198,24 @@ async def test_buffer(db_session: AsyncSession):
 
 
 @pytest.mark.asyncio
-async def test_find_intersecting_fields(db_session: AsyncSession, test_group):
+async def test_find_intersecting_fields(db_session: AsyncSession, test_group, test_region):
     # Create a field with geometry
     fsvc = FieldService(db_session)
     await fsvc.create_field(
-        FieldCreate(name="Overlap Field", group_id=test_group.id, geometry_geojson=SQUARE_GEOJSON)
+        FieldCreate(
+            name="Overlap Field",
+            group_id=test_group.id,
+            region_id=test_region.id,
+            geometry_geojson=SQUARE_GEOJSON,
+        )
     )
     await fsvc.create_field(
-        FieldCreate(name="Far Field", group_id=test_group.id, geometry_geojson=DISJOINT_GEOJSON)
+        FieldCreate(
+            name="Far Field",
+            group_id=test_group.id,
+            region_id=test_region.id,
+            geometry_geojson=DISJOINT_GEOJSON,
+        )
     )
 
     gsvc = GeometryService(db_session)
@@ -296,7 +331,7 @@ async def test_api_buffer(client: AsyncClient, test_user):
 
 
 @pytest.mark.asyncio
-async def test_api_intersections(client: AsyncClient, test_user, test_group):
+async def test_api_intersections(client: AsyncClient, test_user, test_group, test_region):
     token = await _login(client)
     # Create a field with geometry via API
     await client.post(
@@ -305,6 +340,7 @@ async def test_api_intersections(client: AsyncClient, test_user, test_group):
         json={
             "name": "Intersect Target",
             "group_id": str(test_group.id),
+            "region_id": str(test_region.id),
             "geometry_geojson": SQUARE_GEOJSON,
         },
     )

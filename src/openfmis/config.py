@@ -10,6 +10,9 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://openfmis:openfmis@localhost:5432/openfmis"
 
+    # Geodata (CLU/PLSS) — shared RDS with national boundary data
+    GEODATA_DATABASE_URL: str | None = None
+
     # JWT
     JWT_SECRET_KEY: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
@@ -23,6 +26,9 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_DEBUG: bool = True
     APP_LOG_LEVEL: str = "INFO"
+
+    # Rate limiting
+    RATE_LIMIT_RPM: int = 120  # requests per minute per IP
 
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod

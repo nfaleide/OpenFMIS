@@ -35,15 +35,10 @@ class CLUService:
 
     async def get_clus_at_point(self, lon: float, lat: float, limit: int = 20) -> list[dict]:
         """Return CLU polygons containing the given point."""
-        point_wkt = f"POINT({lon} {lat})"
+        point = func.ST_SetSRID(func.ST_MakePoint(lon, lat), 4326)
         result = await self.db.execute(
             select(CLU, ST_AsGeoJSON(CLU.geom).label("geojson"))
-            .where(
-                ST_Intersects(
-                    CLU.geom,
-                    func.ST_SetSRID(func.ST_GeomFromText(point_wkt), 4326),
-                )
-            )
+            .where(ST_Intersects(CLU.geom, point))
             .limit(limit)
         )
         return [_clu_dict(row.CLU, row.geojson) for row in result]
@@ -85,6 +80,18 @@ class CLUService:
                     func.ST_SetSRID(func.ST_GeomFromGeoJSON(json_mod.dumps(geojson)), 4326),
                 )
             )
+            .limit(limit)
+        )
+        return [_clu_dict(row.CLU, row.geojson) for row in result]
+
+    async def get_clus_by_bbox(
+        self, min_lon: float, min_lat: float, max_lon: float, max_lat: float, limit: int = 2000
+    ) -> list[dict]:
+        """Return CLU polygons intersecting a bounding box."""
+        bbox = func.ST_SetSRID(func.ST_MakeEnvelope(min_lon, min_lat, max_lon, max_lat), 4326)
+        result = await self.db.execute(
+            select(CLU, ST_AsGeoJSON(CLU.geom).label("geojson"))
+            .where(ST_Intersects(CLU.geom, bbox))
             .limit(limit)
         )
         return [_clu_dict(row.CLU, row.geojson) for row in result]

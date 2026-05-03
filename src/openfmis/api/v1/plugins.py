@@ -14,7 +14,7 @@ from openfmis.services.plugin import PluginAlreadyExistsError, PluginNotFoundErr
 router = APIRouter(prefix="/plugins", tags=["plugins"])
 
 
-@router.get("", response_model=list[PluginOut])
+@router.get("", response_model=list[PluginOut], summary="List plugins")
 async def list_plugins(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
@@ -26,7 +26,7 @@ async def list_plugins(
     return [PluginOut.model_validate(p) for p in plugins]
 
 
-@router.get("/{slug}", response_model=PluginOut)
+@router.get("/{slug}", response_model=PluginOut, summary="Get plugin")
 async def get_plugin(
     slug: str,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -39,7 +39,12 @@ async def get_plugin(
     return PluginOut.model_validate(plugin)
 
 
-@router.post("", response_model=PluginOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=PluginOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Register plugin",
+)
 async def register_plugin(
     data: PluginRegister,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -58,7 +63,7 @@ async def register_plugin(
     return PluginOut.model_validate(plugin)
 
 
-@router.patch("/{slug}", response_model=PluginOut)
+@router.patch("/{slug}", response_model=PluginOut, summary="Update plugin")
 async def update_plugin(
     slug: str,
     data: PluginUpdate,
@@ -75,7 +80,7 @@ async def update_plugin(
     return PluginOut.model_validate(plugin)
 
 
-@router.post("/{slug}/activate", response_model=PluginOut)
+@router.post("/{slug}/activate", response_model=PluginOut, summary="Activate plugin")
 async def activate_plugin(
     slug: str,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -90,7 +95,7 @@ async def activate_plugin(
     return PluginOut.model_validate(plugin)
 
 
-@router.post("/{slug}/deactivate", response_model=PluginOut)
+@router.post("/{slug}/deactivate", response_model=PluginOut, summary="Deactivate plugin")
 async def deactivate_plugin(
     slug: str,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -105,7 +110,7 @@ async def deactivate_plugin(
     return PluginOut.model_validate(plugin)
 
 
-@router.delete("/{slug}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{slug}", status_code=status.HTTP_204_NO_CONTENT, summary="Unregister plugin")
 async def unregister_plugin(
     slug: str,
     db: Annotated[AsyncSession, Depends(get_db)],

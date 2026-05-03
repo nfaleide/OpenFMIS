@@ -1,7 +1,12 @@
 """UserService + User API endpoint tests."""
 
+import uuid
+
 import pytest
 from httpx import AsyncClient
+
+from openfmis.models.user import User
+from openfmis.security.password import hash_password
 
 
 async def _login(
@@ -145,3 +150,154 @@ async def test_list_users_filter_active(client: AsyncClient, test_user, inactive
     usernames = [u["username"] for u in resp.json()["items"]]
     assert "testuser" in usernames
     assert "inactiveuser" not in usernames
+
+
+# ── Escalation guard tests ──────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_self_superuser_escalation_blocked(client: AsyncClient, test_user):
+    """A non-superuser cannot set is_superuser on themselves."""
+    token = await _login(client)
+    resp = await client.patch(
+        f"/api/v1/users/{test_user.id}",
+        headers=_auth(token),
+        json={"is_superuser": True},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_non_superuser_cannot_change_active(
+    client: AsyncClient,
+    test_user,
+):
+    """A non-superuser cannot change is_active on anyone."""
+    token = await _login(client)
+    resp = await client.patch(
+        f"/api/v1/users/{test_user.id}",
+        headers=_auth(token),
+        json={"is_active": False},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_non_superuser_cannot_change_group(
+    client: AsyncClient,
+    test_user,
+):
+    """A non-superuser cannot reassign group_id."""
+    token = await _login(client)
+    resp = await client.patch(
+        f"/api/v1/users/{test_user.id}",
+        headers=_auth(token),
+        json={"group_id": str(uuid.uuid4())},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_non_superuser_cannot_edit_other_user(
+    client: AsyncClient,
+    db_session,
+    test_user,
+):
+    """A non-superuser cannot modify another user's profile."""
+    other = User(
+        id=uuid.uuid4(),
+        username="other_user",
+        password_hash=hash_password("otherpass123"),
+        is_active=True,
+        is_superuser=False,
+    )
+    db_session.add(other)
+    await db_session.flush()
+
+    token = await _login(client)
+    resp = await client.patch(
+        f"/api/v1/users/{other.id}",
+        headers=_auth(token),
+        json={"full_name": "Hacked Name"},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_non_superuser_can_edit_own_profile(
+    client: AsyncClient,
+    test_user,
+):
+    """A non-superuser can update their own email and full_name."""
+    token = await _login(client)
+    resp = await client.patch(
+        f"/api/v1/users/{test_user.id}",
+        headers=_auth(token),
+        json={"full_name": "Self Updated"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["full_name"] == "Self Updated"
+
+
+@pytest.mark.asyncio
+async def test_superuser_can_promote_another(
+    client: AsyncClient,
+    db_session,
+    test_user,
+):
+    """A superuser CAN set is_superuser=true on another user."""
+    admin = User(
+        id=uuid.uuid4(),
+        username="superadmin",
+        password_hash=hash_password("adminpass123"),
+        is_active=True,
+        is_superuser=True,
+    )
+    db_session.add(admin)
+    await db_session.flush()
+
+    target = User(
+        id=uuid.uuid4(),
+        username="promote_target",
+        password_hash=hash_password("targetpass123"),
+        is_active=True,
+        is_superuser=False,
+    )
+    db_session.add(target)
+    await db_session.flush()
+
+    token = await _login(client, "superadmin", "adminpass123")
+    resp = await client.patch(
+        f"/api/v1/users/{target.id}",
+        headers=_auth(token),
+        json={"is_superuser": True},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["is_superuser"] is True
+
+
+@pytest.mark.asyncio
+async def test_superuser_can_deactivate_user(
+    client: AsyncClient,
+    db_session,
+    test_user,
+):
+    """A superuser can deactivate another user."""
+    admin = User(
+        id=uuid.uuid4(),
+        username="superadmin2",
+        password_hash=hash_password("adminpass123"),
+        is_active=True,
+        is_superuser=True,
+    )
+    db_session.add(admin)
+    await db_session.flush()
+
+    token = await _login(client, "superadmin2", "adminpass123")
+    resp = await client.patch(
+        f"/api/v1/users/{test_user.id}",
+        headers=_auth(token),
+        json={"is_active": False},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["is_active"] is False

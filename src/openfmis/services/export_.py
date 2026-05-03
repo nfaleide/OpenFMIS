@@ -1,4 +1,4 @@
-"""ExportService — export Fields to common vector formats.
+"""ExportService — export Fields to common vector formats + shareable links.
 
 Supported output formats:
   - GeoJSON FeatureCollection  (pure Python, no GDAL needed)
@@ -10,11 +10,14 @@ All geometries are returned in WGS84 (EPSG:4326), the native storage CRS.
 """
 
 import csv
+import hashlib
 import io
 import json
 import os
+import secrets
 import tempfile
 import zipfile
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import fiona
@@ -23,7 +26,19 @@ from shapely.geometry import shape
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from openfmis.exceptions import NotFoundError
+from openfmis.models.export_link import ExportLink
 from openfmis.models.field import Field
+
+VALID_EXPORT_FORMATS = {"geojson", "shapefile", "kml", "csv"}
+
+# Content types and filenames per format
+FORMAT_CONTENT_TYPES = {
+    "geojson": ("application/geo+json", "fields.geojson"),
+    "shapefile": ("application/zip", "fields.zip"),
+    "kml": ("application/vnd.google-earth.kml+xml", "fields.kml"),
+    "csv": ("text/csv", "fields.csv"),
+}
 
 
 class ExportService:
@@ -163,6 +178,111 @@ class ExportService:
 
         result = await self.db.execute(query)
         return [(row.Field, row.geojson) for row in result]
+
+    # ── Export link management ────────────────────────────────────────────
+
+    async def create_export_link(
+        self,
+        format: str,
+        created_by: UUID | None = None,
+        field_ids: list[UUID] | None = None,
+        group_id: UUID | None = None,
+        expires_in_hours: int = 24,
+        max_downloads: int | None = None,
+    ) -> ExportLink:
+        """Create a shareable export link with a SHA-256 hash."""
+        if format not in VALID_EXPORT_FORMATS:
+            raise ValueError(f"Invalid format: {format!r}. Valid: {sorted(VALID_EXPORT_FORMATS)}")
+
+        # Build a unique token and hash it
+        token = secrets.token_hex(32)
+        link_hash = hashlib.sha256(token.encode()).hexdigest()
+
+        filters: dict = {}
+        if field_ids:
+            filters["field_ids"] = [str(fid) for fid in field_ids]
+        if group_id:
+            filters["group_id"] = str(group_id)
+
+        _, default_filename = FORMAT_CONTENT_TYPES[format]
+
+        link = ExportLink(
+            hash=link_hash,
+            format=format,
+            filters=filters,
+            expires_at=datetime.now(UTC) + timedelta(hours=expires_in_hours),
+            created_by=created_by,
+            max_downloads=max_downloads,
+            filename=default_filename,
+        )
+        self.db.add(link)
+        await self.db.flush()
+        await self.db.refresh(link)
+        return link
+
+    async def get_export_link(self, link_hash: str) -> ExportLink:
+        """Retrieve and validate an export link by hash.
+
+        Raises NotFoundError if not found, expired, or download limit reached.
+        """
+        result = await self.db.execute(select(ExportLink).where(ExportLink.hash == link_hash))
+        link = result.scalar_one_or_none()
+        if link is None:
+            raise NotFoundError("Export link not found")
+
+        now = datetime.now(UTC)
+        if link.expires_at.tzinfo is None:
+            # Safety: treat naive datetimes as UTC
+
+            link_expires = link.expires_at.replace(tzinfo=UTC)
+        else:
+            link_expires = link.expires_at
+
+        if now > link_expires:
+            raise NotFoundError("Export link has expired")
+
+        if link.max_downloads is not None and link.download_count >= link.max_downloads:
+            raise NotFoundError("Export link download limit reached")
+
+        return link
+
+    async def consume_export_link(self, link_hash: str) -> tuple[bytes | str, str, str]:
+        """Fetch the export link, generate the export, and increment download count.
+
+        Returns (content, content_type, filename).
+        """
+        link = await self.get_export_link(link_hash)
+
+        # Parse filters
+        field_ids = None
+        group_id = None
+        if link.filters:
+            if "field_ids" in link.filters:
+                field_ids = [UUID(fid) for fid in link.filters["field_ids"]]
+            if "group_id" in link.filters:
+                group_id = UUID(link.filters["group_id"])
+
+        # Generate export
+        content: bytes | str
+        if link.format == "geojson":
+            fc = await self.export_geojson(field_ids=field_ids, group_id=group_id)
+            content = json.dumps(fc, indent=2)
+        elif link.format == "shapefile":
+            content = await self.export_shapefile(field_ids=field_ids, group_id=group_id)
+        elif link.format == "kml":
+            content = await self.export_kml(field_ids=field_ids, group_id=group_id)
+        elif link.format == "csv":
+            content = await self.export_csv(field_ids=field_ids, group_id=group_id)
+        else:
+            raise ValueError(f"Unknown format: {link.format}")
+
+        content_type, filename = FORMAT_CONTENT_TYPES[link.format]
+
+        # Increment download count
+        link.download_count += 1
+        await self.db.flush()
+
+        return content, content_type, filename
 
 
 def _build_kml(rows: list[tuple["Field", str | None]]) -> bytes:

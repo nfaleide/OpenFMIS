@@ -3,9 +3,16 @@
 from fastapi import APIRouter
 
 from openfmis.api.v1.acl import router as acl_router
+from openfmis.api.v1.adapt_map import router as adapt_map_router
+from openfmis.api.v1.api_keys import router as api_keys_router
 from openfmis.api.v1.auth import router as auth_router
 from openfmis.api.v1.billing import router as billing_router
+from openfmis.api.v1.boundary_proxy import router as boundary_proxy_router
+from openfmis.api.v1.boundary_versions import router as boundary_versions_router
 from openfmis.api.v1.clu import router as clu_router
+from openfmis.api.v1.crop_years import router as crop_years_router
+from openfmis.api.v1.datasets import router as datasets_router
+from openfmis.api.v1.email_config import router as email_config_router
 from openfmis.api.v1.equipment import router as equipment_router
 from openfmis.api.v1.export_ import router as export_router
 from openfmis.api.v1.field_events import router as field_events_router
@@ -13,13 +20,21 @@ from openfmis.api.v1.fields import router as fields_router
 from openfmis.api.v1.geometry import router as geometry_router
 from openfmis.api.v1.groups import router as groups_router
 from openfmis.api.v1.health import router as health_router
+from openfmis.api.v1.highlights import router as highlights_router
 from openfmis.api.v1.import_ import router as import_router
 from openfmis.api.v1.logos import router as logos_router
 from openfmis.api.v1.photos import router as photos_router
 from openfmis.api.v1.plss import router as plss_router
 from openfmis.api.v1.plugins import router as plugins_router
+from openfmis.api.v1.point_datasets import router as point_datasets_router
+from openfmis.api.v1.point_ingestion import router as point_ingestion_router
 from openfmis.api.v1.preferences import router as preferences_router
+from openfmis.api.v1.prescriptions import router as prescriptions_router
+from openfmis.api.v1.reference import router as reference_router
 from openfmis.api.v1.regions import router as regions_router
+from openfmis.api.v1.sampling import router as sampling_router
+from openfmis.api.v1.subscriptions import router as subscriptions_router
+from openfmis.api.v1.sync import router as sync_router
 from openfmis.api.v1.tiles import router as tiles_router
 from openfmis.api.v1.users import router as users_router
 
@@ -30,6 +45,8 @@ api_router.include_router(users_router)
 api_router.include_router(groups_router)
 api_router.include_router(acl_router)
 api_router.include_router(fields_router)
+api_router.include_router(boundary_versions_router)
+api_router.include_router(crop_years_router)
 api_router.include_router(geometry_router)
 api_router.include_router(regions_router)
 api_router.include_router(field_events_router)
@@ -42,5 +59,18 @@ api_router.include_router(export_router)
 api_router.include_router(plss_router)
 api_router.include_router(clu_router)
 api_router.include_router(plugins_router)
+api_router.include_router(point_datasets_router)
+api_router.include_router(point_ingestion_router)
+api_router.include_router(prescriptions_router)
+api_router.include_router(adapt_map_router)
+api_router.include_router(sync_router)
 api_router.include_router(billing_router)
 api_router.include_router(tiles_router)
+api_router.include_router(email_config_router)
+api_router.include_router(sampling_router)
+api_router.include_router(boundary_proxy_router)
+api_router.include_router(datasets_router)
+api_router.include_router(highlights_router)
+api_router.include_router(api_keys_router)
+api_router.include_router(reference_router)
+api_router.include_router(subscriptions_router)

@@ -12,10 +12,14 @@ class FieldRead(BaseModel):
     description: str | None = None
     area_acres: float | None = None
     group_id: UUID
+    region_id: UUID
     created_by: UUID | None = None
     supersedes_id: UUID | None = None
     version: int
     is_current: bool
+    fsa_tract: str | None = None
+    fsa_field: str | None = None
+    clu_id: str | None = None
     metadata_: dict | None = Field(None, alias="metadata_")
     created_at: datetime
     updated_at: datetime
@@ -33,7 +37,11 @@ class FieldCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
     description: str | None = None
     group_id: UUID
+    region_id: UUID
     geometry_geojson: dict | None = None  # GeoJSON dict
+    fsa_tract: str | None = None
+    fsa_field: str | None = None
+    clu_id: str | None = None
     metadata_: dict | None = Field(None, alias="metadata_")
 
     model_config = {"populate_by_name": True}
@@ -45,6 +53,21 @@ class FieldUpdate(BaseModel):
     metadata_: dict | None = Field(None, alias="metadata_")
 
     model_config = {"populate_by_name": True}
+
+
+class BatchRenameItem(BaseModel):
+    field_id: UUID
+    name: str = Field(..., min_length=1, max_length=255)
+
+
+class BatchRenameRequest(BaseModel):
+    renames: list[BatchRenameItem] = Field(..., min_length=1)
+
+
+class BatchRenameResult(BaseModel):
+    renamed: list[UUID]
+    denied: list[UUID]
+    not_found: list[UUID]
 
 
 class FieldList(BaseModel):

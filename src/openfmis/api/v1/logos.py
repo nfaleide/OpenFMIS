@@ -15,7 +15,7 @@ from openfmis.services.logo import LogoService
 router = APIRouter(prefix="/logos", tags=["logos"])
 
 
-@router.get("/{group_id}", response_model=LogoRead)
+@router.get("/{group_id}", response_model=LogoRead, summary="Get logo")
 async def get_logo(
     group_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -26,7 +26,7 @@ async def get_logo(
     return LogoRead.model_validate(logo)
 
 
-@router.put("", response_model=LogoRead)
+@router.put("", response_model=LogoRead, summary="Upsert logo")
 async def upsert_logo(
     body: LogoUpsert,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -37,7 +37,7 @@ async def upsert_logo(
     return LogoRead.model_validate(logo)
 
 
-@router.delete("/{group_id}", status_code=204)
+@router.delete("/{group_id}", status_code=204, summary="Delete logo")
 async def delete_logo(
     group_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],

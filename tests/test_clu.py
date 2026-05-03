@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openfmis.models.clu import CLU
 from openfmis.models.group import Group
+from openfmis.models.region import Region
 from openfmis.models.user import User
 from openfmis.schemas.field import FieldCreate
 from openfmis.security.password import hash_password
@@ -65,6 +66,14 @@ async def test_group(db_session: AsyncSession) -> Group:
 
 
 @pytest.fixture
+async def test_region(db_session: AsyncSession, test_group: Group) -> Region:
+    region = Region(id=uuid.uuid4(), name="Test Farm", group_id=test_group.id)
+    db_session.add(region)
+    await db_session.flush()
+    return region
+
+
+@pytest.fixture
 async def sample_clu(db_session: AsyncSession) -> CLU:
     clu = CLU(state="KS", county_fips="KS020", calcacres=37.5)
     db_session.add(clu)
@@ -78,10 +87,17 @@ async def sample_clu(db_session: AsyncSession) -> CLU:
 
 
 @pytest.fixture
-async def test_field(db_session: AsyncSession, test_group: Group, test_user: User):
+async def test_field(
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
+):
     svc = FieldService(db_session)
     return await svc.create_field(
-        FieldCreate(name="CLU Test Field", group_id=test_group.id, geometry_geojson=FIELD_MP),
+        FieldCreate(
+            name="CLU Test Field",
+            group_id=test_group.id,
+            region_id=test_region.id,
+            geometry_geojson=FIELD_MP,
+        ),
         created_by=test_user.id,
     )
 
@@ -146,12 +162,12 @@ async def test_get_clus_for_field(db_session: AsyncSession, sample_clu: CLU, tes
 
 @pytest.mark.asyncio
 async def test_get_clus_for_field_no_geometry(
-    db_session: AsyncSession, test_group: Group, test_user: User
+    db_session: AsyncSession, test_group: Group, test_region: Region, test_user: User
 ):
     """Field with no geometry should return empty list."""
     svc_field = FieldService(db_session)
     field = await svc_field.create_field(
-        FieldCreate(name="No Geom", group_id=test_group.id),
+        FieldCreate(name="No Geom", group_id=test_group.id, region_id=test_region.id),
         created_by=test_user.id,
     )
     svc = CLUService(db_session)

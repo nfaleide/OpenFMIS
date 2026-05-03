@@ -14,7 +14,7 @@ from openfmis.services.clu import CLUService
 router = APIRouter(prefix="/clu", tags=["clu"])
 
 
-@router.get("/states")
+@router.get("/states", summary="List clu states")
 async def list_clu_states(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
@@ -24,7 +24,7 @@ async def list_clu_states(
     return await svc.get_available_states()
 
 
-@router.get("/county/{state}/{county_fips}")
+@router.get("/county/{state}/{county_fips}", summary="Get clus by county")
 async def get_clus_by_county(
     state: str,
     county_fips: str,
@@ -42,7 +42,7 @@ async def get_clus_by_county(
     return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
-@router.get("/at-point")
+@router.get("/at-point", summary="Get clus at point")
 async def get_clus_at_point(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
@@ -55,7 +55,7 @@ async def get_clus_at_point(
     return await svc.get_clus_at_point(lon, lat, limit=limit)
 
 
-@router.post("/intersecting")
+@router.post("/intersecting", summary="Get clus intersecting")
 async def get_clus_intersecting(
     geometry: dict,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -70,7 +70,7 @@ async def get_clus_intersecting(
     return await svc.get_clus_intersecting_geometry(geometry, limit=limit)
 
 
-@router.get("/fields/{field_id}")
+@router.get("/fields/{field_id}", summary="Get clus for field")
 async def get_clus_for_field(
     field_id: UUID,
     db: Annotated[AsyncSession, Depends(get_db)],

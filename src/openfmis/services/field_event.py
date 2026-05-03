@@ -1,16 +1,19 @@
 """FieldEventService — CRUD with versioning and sub-entries for 9 event types."""
 
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from openfmis.exceptions import NotFoundError
+from openfmis.models.crop_year import CropYear
 from openfmis.models.field_event import EventType, FieldEvent, FieldEventEntry
 from openfmis.schemas.field_event import (
     FieldEventCreate,
     FieldEventEntryCreate,
     FieldEventUpdate,
+    validate_event_data,
 )
 
 
@@ -70,15 +73,22 @@ class FieldEventService:
     async def create_event(
         self, data: FieldEventCreate, created_by: UUID | None = None
     ) -> FieldEvent:
+        # Validate data against subtype schema
+        validated_data = validate_event_data(data.event_type, data.data)
+
+        # Dual-write: resolve crop_year_id from int crop_year
+        crop_year_id = await self._resolve_crop_year_id(data.field_id, data.crop_year)
+
         event = FieldEvent(
             field_id=data.field_id,
             event_type=data.event_type,
             crop_year=data.crop_year,
+            crop_year_id=crop_year_id,
             operation_date=data.operation_date,
             created_by=created_by,
             version=1,
             is_current=True,
-            data=data.data,
+            data=validated_data,
             notes=data.notes,
         )
         self.db.add(event)
@@ -114,21 +124,28 @@ class FieldEventService:
         """Create a new version of an event (supersedes the old one)."""
         old_event = await self.get_by_id(event_id)
 
+        # Validate data against subtype schema
+        validated_data = validate_event_data(old_event.event_type, data.data)
+
         # Mark old as non-current
         old_event.is_current = False
         await self.db.flush()
+
+        # Dual-write: resolve crop_year_id
+        crop_year_id = await self._resolve_crop_year_id(old_event.field_id, data.crop_year)
 
         # Create new version
         new_event = FieldEvent(
             field_id=old_event.field_id,
             event_type=old_event.event_type,
             crop_year=data.crop_year,
+            crop_year_id=crop_year_id,
             operation_date=data.operation_date,
             created_by=old_event.created_by,
             supersedes_id=old_event.id,
             version=old_event.version + 1,
             is_current=True,
-            data=data.data,
+            data=validated_data,
             notes=data.notes,
         )
         self.db.add(new_event)
@@ -226,3 +243,31 @@ class FieldEventService:
             .order_by(FieldEventEntry.sort_order)
         )
         return list(result.scalars().all())
+
+    async def _resolve_crop_year_id(self, field_id: UUID, crop_year: int) -> UUID:
+        """Find or create a CropYear for the given field + year.
+
+        This enables dual-write: both the int `crop_year` column and the
+        `crop_year_id` FK are populated on every create/version.
+        """
+        result = await self.db.execute(
+            select(CropYear).where(
+                CropYear.field_id == field_id,
+                CropYear.label == str(crop_year),
+                CropYear.deleted_at.is_(None),
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing is not None:
+            return existing.id
+
+        # Auto-create: Jan 1 – Dec 31 of the crop year
+        cy = CropYear(
+            field_id=field_id,
+            label=str(crop_year),
+            start_date=date(crop_year, 1, 1),
+            end_date=date(crop_year, 12, 31),
+        )
+        self.db.add(cy)
+        await self.db.flush()
+        return cy.id

@@ -31,6 +31,7 @@ class FieldService:
         offset: int = 0,
         limit: int = 50,
         group_id: UUID | None = None,
+        region_id: UUID | None = None,
         current_only: bool = True,
     ) -> tuple[list[Field], int]:
         query = select(Field).where(Field.deleted_at.is_(None))
@@ -43,6 +44,10 @@ class FieldService:
         if group_id is not None:
             query = query.where(Field.group_id == group_id)
             count_query = count_query.where(Field.group_id == group_id)
+
+        if region_id is not None:
+            query = query.where(Field.region_id == region_id)
+            count_query = count_query.where(Field.region_id == region_id)
 
         query = query.order_by(Field.name).offset(offset).limit(limit)
 
@@ -58,9 +63,13 @@ class FieldService:
             name=data.name,
             description=data.description,
             group_id=data.group_id,
+            region_id=data.region_id,
             created_by=created_by,
             version=1,
             is_current=True,
+            fsa_tract=data.fsa_tract,
+            fsa_field=data.fsa_field,
+            clu_id=data.clu_id,
             metadata_=data.metadata_,
         )
 
@@ -73,6 +82,7 @@ class FieldService:
         # Compute area if geometry was provided
         if data.geometry_geojson is not None:
             await self._update_area(field)
+            await self._snapshot_boundary(field, data.geometry_geojson)
 
         await self.db.refresh(field)
         return field
@@ -107,10 +117,14 @@ class FieldService:
             name=old_field.name,
             description=old_field.description,
             group_id=old_field.group_id,
+            region_id=old_field.region_id,
             created_by=old_field.created_by,
             supersedes_id=old_field.id,
             version=old_field.version + 1,
             is_current=True,
+            fsa_tract=old_field.fsa_tract,
+            fsa_field=old_field.fsa_field,
+            clu_id=old_field.clu_id,
             metadata_=old_field.metadata_,
             geometry=self._geojson_to_wkb_element(geometry_geojson),
         )
@@ -119,6 +133,10 @@ class FieldService:
 
         await self._update_area(new_field)
         await self.db.refresh(new_field)
+
+        # Auto-create a FieldBoundaryVersion snapshot
+        await self._snapshot_boundary(new_field, geometry_geojson)
+
         return new_field
 
     async def get_version_history(self, field_id: UUID) -> list[Field]:
@@ -171,6 +189,46 @@ class FieldService:
         if geojson_str is None:
             return None
         return json.loads(geojson_str)
+
+    async def batch_rename(
+        self,
+        renames: list[tuple[UUID, str]],
+    ) -> list[UUID]:
+        """Rename multiple fields. Returns list of field IDs that were renamed.
+
+        Caller is responsible for ACL checks before calling this.
+        """
+        renamed = []
+        for field_id, new_name in renames:
+            result = await self.db.execute(
+                select(Field).where(
+                    Field.id == field_id,
+                    Field.deleted_at.is_(None),
+                    Field.is_current.is_(True),
+                )
+            )
+            field = result.scalar_one_or_none()
+            if field is not None:
+                field.name = new_name
+                renamed.append(field_id)
+        if renamed:
+            await self.db.flush()
+        return renamed
+
+    async def _snapshot_boundary(self, field: Field, geometry_geojson: dict) -> None:
+        """Create a FieldBoundaryVersion for this geometry change."""
+        from openfmis.schemas.field_boundary_version import BoundaryVersionCreate
+        from openfmis.services.field_boundary_version import FieldBoundaryVersionService
+
+        bv_svc = FieldBoundaryVersionService(self.db)
+        await bv_svc.create(
+            BoundaryVersionCreate(
+                field_id=field.id,
+                geometry_geojson=geometry_geojson,
+                source="geometry_update",
+                created_by=field.created_by,
+            )
+        )
 
     # ── Internal helpers ───────────────────────────────────────────
 

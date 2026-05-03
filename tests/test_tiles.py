@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from openfmis.models.field import Field
 from openfmis.models.group import Group
+from openfmis.models.region import Region
 from openfmis.models.user import User
 from openfmis.security.password import hash_password
 from openfmis.services.tiles import VALID_LAYERS, TileService, _build_tile_sql
@@ -59,10 +60,15 @@ async def tile_group(db_session: AsyncSession) -> Group:
 
 @pytest.fixture
 async def tile_field(db_session: AsyncSession, tile_group: Group, tile_user: User) -> Field:
+    region = Region(name="Tile Region", group_id=tile_group.id)
+    db_session.add(region)
+    await db_session.flush()
+
     field = Field(
         id=uuid.uuid4(),
         name="Tile Field",
         group_id=tile_group.id,
+        region_id=region.id,
         created_by=tile_user.id,
         is_current=True,
         version=1,

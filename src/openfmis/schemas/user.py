@@ -33,6 +33,7 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     full_name: str | None = None
     is_active: bool | None = None
+    is_superuser: bool | None = None
     group_id: UUID | None = None
 
 

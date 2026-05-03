@@ -14,7 +14,7 @@ from openfmis.services.preference import PreferenceService
 router = APIRouter(prefix="/preferences", tags=["preferences"])
 
 
-@router.get("", response_model=PreferenceList)
+@router.get("", response_model=PreferenceList, summary="List preferences")
 async def list_preferences(
     db: Annotated[AsyncSession, Depends(get_db)],
     current_user: Annotated[User, Depends(get_current_user)],
@@ -24,7 +24,7 @@ async def list_preferences(
     return PreferenceList(items=[PreferenceRead.model_validate(p) for p in prefs])
 
 
-@router.get("/{namespace}", response_model=PreferenceRead)
+@router.get("/{namespace}", response_model=PreferenceRead, summary="Get preference")
 async def get_preference(
     namespace: str,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -35,7 +35,7 @@ async def get_preference(
     return PreferenceRead.model_validate(pref)
 
 
-@router.put("", response_model=PreferenceRead)
+@router.put("", response_model=PreferenceRead, summary="Upsert preference")
 async def upsert_preference(
     body: PreferenceUpsert,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -46,7 +46,7 @@ async def upsert_preference(
     return PreferenceRead.model_validate(pref)
 
 
-@router.delete("/{namespace}", status_code=204)
+@router.delete("/{namespace}", status_code=204, summary="Delete preference")
 async def delete_preference(
     namespace: str,
     db: Annotated[AsyncSession, Depends(get_db)],

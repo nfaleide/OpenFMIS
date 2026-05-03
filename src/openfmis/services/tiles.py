@@ -25,12 +25,26 @@ class TileService:
 
     async def get_tile(self, layer: str, z: int, x: int, y: int) -> bytes | None:
         """Return raw MVT bytes for the requested tile, or None if empty."""
-        if layer not in VALID_LAYERS:
-            raise ValueError(f"Unknown layer: {layer!r}. Valid: {sorted(VALID_LAYERS)}")
+        from openfmis.plugin_sdk.hooks import get_tile_layer
+
+        is_core = layer in VALID_LAYERS
+        plugin_spec = get_tile_layer(layer) if not is_core else None
+
+        if not is_core and plugin_spec is None:
+            all_layers = sorted(VALID_LAYERS | set(list_plugin_tile_layers()))
+            raise ValueError(f"Unknown layer: {layer!r}. Valid: {all_layers}")
+
         if not (MIN_ZOOM <= z <= MAX_ZOOM):
             return None
 
-        sql = _build_tile_sql(layer, z, x, y)
+        if is_core:
+            sql = _build_tile_sql(layer, z, x, y)
+        else:
+            assert plugin_spec is not None
+            sql = plugin_spec.sql_builder(z, x, y)
+            if not sql:
+                return None
+
         result = await self.db.execute(text(sql), {"z": z, "x": x, "y": y})
         row = result.fetchone()
         if row is None:
@@ -40,6 +54,13 @@ class TileService:
         if not mvt_bytes:
             return None
         return bytes(mvt_bytes)
+
+
+def list_plugin_tile_layers() -> list[str]:
+    """Return names of plugin-registered tile layers."""
+    from openfmis.plugin_sdk.hooks import list_tile_layers
+
+    return list_tile_layers()
 
 
 # ── SQL builders ──────────────────────────────────────────────────────────────

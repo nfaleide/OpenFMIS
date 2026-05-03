@@ -19,7 +19,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from openfmis.exceptions import NotFoundError
+from openfmis.exceptions import NotFoundError, ValidationError
 from openfmis.models.privilege import (
     GroupPrivilege,
     PermissionState,
@@ -133,8 +133,14 @@ class ACLService:
         return priv
 
     async def grant_group_privilege(self, group_id: UUID, data: PrivilegeGrant) -> GroupPrivilege:
-        """Create or update a group privilege entry."""
+        """Create or update a group privilege entry.
+
+        Enforces privilege ceiling: a child group cannot hold any GRANT
+        permission that its parent group does not have. Root groups
+        (no parent) are unconstrained.
+        """
         self._validate_permission_states(data.permissions)
+        await self._enforce_privilege_ceiling(group_id, data)
 
         existing = await self._find_group_privilege(group_id, data.resource_type, data.resource_id)
         if existing is not None:
@@ -319,9 +325,34 @@ class ACLService:
         valid = {s.value for s in PermissionState}
         for name, state in permissions.items():
             if state not in valid:
-                from openfmis.exceptions import ValidationError
-
                 raise ValidationError(
                     f"Invalid permission state '{state}' for '{name}'. "
                     f"Must be one of: {', '.join(valid)}"
+                )
+
+    async def _enforce_privilege_ceiling(self, group_id: UUID, data: PrivilegeGrant) -> None:
+        """Reject any GRANT the parent group does not hold.
+
+        Root groups (no parent) are the ceiling — they can have anything.
+        """
+        group_svc = GroupService(self.db)
+        group = await group_svc.get_by_id(group_id)
+
+        if group.parent_id is None:
+            return  # Root group — no ceiling
+
+        # Get parent's effective permissions for this resource type
+        parent_priv = await self._find_group_privilege(
+            group.parent_id, data.resource_type, data.resource_id
+        )
+        parent_perms = parent_priv.permissions if parent_priv else {}
+
+        for perm_name, state in data.permissions.items():
+            if state != PermissionState.GRANT:
+                continue  # Only GRANT needs ceiling check
+            parent_state = parent_perms.get(perm_name)
+            if parent_state != PermissionState.GRANT:
+                raise ValidationError(
+                    f"Cannot grant '{perm_name}' — parent group does not "
+                    f"hold this permission (privilege ceiling violation)"
                 )

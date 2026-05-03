@@ -40,8 +40,22 @@ class LedgerEntryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TransactionOut(LedgerEntryOut):
+    """Ledger entry with owner context — used in cross-account admin views."""
+
+    owner_type: str | None = None
+    owner_id: uuid.UUID | None = None
+
+
 class LedgerPage(BaseModel):
     items: list[LedgerEntryOut]
+    total: int
+    offset: int
+    limit: int
+
+
+class TransactionPage(BaseModel):
+    items: list[TransactionOut]
     total: int
     offset: int
     limit: int
@@ -76,6 +90,7 @@ class PriceItemOut(BaseModel):
     operation: str
     credit_cost: int
     description: str | None
+    module_id: str | None = None
     is_active: bool
     created_at: datetime
     updated_at: datetime

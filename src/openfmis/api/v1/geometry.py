@@ -28,7 +28,7 @@ from openfmis.services.geometry import GeometryService
 router = APIRouter(prefix="/geometry", tags=["geometry"])
 
 
-@router.post("/validate", response_model=GeometryValidation)
+@router.post("/validate", response_model=GeometryValidation, summary="Validate geometry")
 async def validate_geometry(
     body: GeometryInput,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -39,7 +39,7 @@ async def validate_geometry(
     return GeometryValidation(is_valid=is_valid, reason=reason)
 
 
-@router.post("/area", response_model=GeometryArea)
+@router.post("/area", response_model=GeometryArea, summary="Calculate area")
 async def calculate_area(
     body: GeometryInput,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -50,7 +50,7 @@ async def calculate_area(
     return GeometryArea(area_acres=area_acres, area_sq_meters=area_sq_meters)
 
 
-@router.post("/bbox", response_model=BboxResponse)
+@router.post("/bbox", response_model=BboxResponse, summary="Calculate bbox")
 async def calculate_bbox(
     body: GeometryInput,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -67,7 +67,7 @@ async def calculate_bbox(
     )
 
 
-@router.post("/type", response_model=GeometryType)
+@router.post("/type", response_model=GeometryType, summary="Get geometry type")
 async def get_geometry_type(
     body: GeometryInput,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -78,7 +78,7 @@ async def get_geometry_type(
     return GeometryType(geometry_type=geom_type, num_geometries=num_geoms)
 
 
-@router.post("/centroid", response_model=CentroidResponse)
+@router.post("/centroid", response_model=CentroidResponse, summary="Get centroid")
 async def get_centroid(
     body: GeometryInput,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -89,7 +89,7 @@ async def get_centroid(
     return CentroidResponse(longitude=lon, latitude=lat)
 
 
-@router.post("/union", response_model=dict)
+@router.post("/union", response_model=dict, summary="Union geometries")
 async def union_geometries(
     body: MultiGeometryInput,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -101,7 +101,7 @@ async def union_geometries(
     return result
 
 
-@router.post("/clip", response_model=dict)
+@router.post("/clip", response_model=dict, summary="Clip geometry")
 async def clip_geometry(
     body: ClipInput,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -113,7 +113,7 @@ async def clip_geometry(
     return result
 
 
-@router.post("/hole", response_model=dict)
+@router.post("/hole", response_model=dict, summary="Hole geometry")
 async def hole_geometry(
     body: HoleInput,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -125,7 +125,7 @@ async def hole_geometry(
     return result
 
 
-@router.post("/buffer", response_model=dict)
+@router.post("/buffer", response_model=dict, summary="Buffer geometry")
 async def buffer_geometry(
     body: BufferInput,
     db: Annotated[AsyncSession, Depends(get_db)],
@@ -137,7 +137,7 @@ async def buffer_geometry(
     return result
 
 
-@router.post("/intersections", response_model=IntersectionResponse)
+@router.post("/intersections", response_model=IntersectionResponse, summary="Find intersections")
 async def find_intersections(
     body: IntersectionQuery,
     db: Annotated[AsyncSession, Depends(get_db)],

@@ -57,6 +57,7 @@ class ImportService:
         file_content: bytes,
         filename: str,
         group_id: UUID,
+        region_id: UUID,
         created_by: UUID | None = None,
         name_field: str | None = None,
     ) -> ImportResult:
@@ -67,13 +68,17 @@ class ImportService:
         ext = os.path.splitext(filename.lower())[1]
 
         if ext == ".zip":
-            return await self._import_shapefile(file_content, group_id, created_by, name_field)
+            return await self._import_shapefile(
+                file_content, group_id, region_id, created_by, name_field
+            )
         elif ext in (".geojson", ".json"):
-            return await self._import_geojson(file_content, group_id, created_by, name_field)
+            return await self._import_geojson(
+                file_content, group_id, region_id, created_by, name_field
+            )
         elif ext == ".kml":
-            return await self._import_kml(file_content, group_id, created_by, name_field)
+            return await self._import_kml(file_content, group_id, region_id, created_by, name_field)
         elif ext == ".csv":
-            return await self._import_csv(file_content, group_id, created_by, name_field)
+            return await self._import_csv(file_content, group_id, region_id, created_by, name_field)
         else:
             return ImportResult(
                 created=0,
@@ -90,6 +95,7 @@ class ImportService:
         self,
         zip_bytes: bytes,
         group_id: UUID,
+        region_id: UUID,
         created_by: UUID | None,
         name_field: str | None,
     ) -> ImportResult:
@@ -101,6 +107,14 @@ class ImportService:
 
             try:
                 with zipfile.ZipFile(zip_path, "r") as zf:
+                    for member in zf.infolist():
+                        if member.filename.startswith("/") or ".." in member.filename:
+                            return ImportResult(
+                                created=0,
+                                skipped=0,
+                                errors=["Zip archive contains unsafe paths."],
+                                field_ids=[],
+                            )
                     zf.extractall(tmpdir)
             except zipfile.BadZipFile:
                 return ImportResult(
@@ -128,33 +142,39 @@ class ImportService:
                     field_ids=[],
                 )
 
-            return await self._import_fiona_source(shp_path, group_id, created_by, name_field)
+            return await self._import_fiona_source(
+                shp_path, group_id, region_id, created_by, name_field
+            )
 
     async def _import_geojson(
         self,
         content: bytes,
         group_id: UUID,
+        region_id: UUID,
         created_by: UUID | None,
         name_field: str | None,
     ) -> ImportResult:
         # fiona can open GeoJSON from a virtual in-memory path via MemoryFile
         with fiona.MemoryFile(content) as memfile:
             with memfile.open() as src:
-                return await self._read_fiona_features(src, group_id, created_by, name_field)
+                return await self._read_fiona_features(
+                    src, group_id, region_id, created_by, name_field
+                )
 
     async def _import_kml(
         self,
         content: bytes,
         group_id: UUID,
+        region_id: UUID,
         created_by: UUID | None,
         name_field: str | None,
     ) -> ImportResult:
         """Parse KML natively via ElementTree — extracts Polygon/MultiGeometry placemarks."""
-        import xml.etree.ElementTree as ET
+        import defusedxml.ElementTree as DefusedET  # noqa: N812
 
         try:
-            root = ET.fromstring(content.decode("utf-8"))
-        except ET.ParseError as exc:
+            root = DefusedET.fromstring(content.decode("utf-8"))
+        except Exception as exc:
             return ImportResult(created=0, skipped=0, errors=[f"Invalid KML: {exc}"], field_ids=[])
 
         # KML namespace is commonly http://www.opengis.net/kml/2.2 or no namespace
@@ -187,7 +207,12 @@ class ImportService:
                     continue
 
                 field = await svc.create_field(
-                    FieldCreate(name=name, group_id=group_id, geometry_geojson=mp_geojson),
+                    FieldCreate(
+                        name=name,
+                        group_id=group_id,
+                        region_id=region_id,
+                        geometry_geojson=mp_geojson,
+                    ),
                     created_by=created_by,
                 )
                 field_ids.append(field.id)
@@ -202,6 +227,7 @@ class ImportService:
         self,
         content: bytes,
         group_id: UUID,
+        region_id: UUID,
         created_by: UUID | None,
         name_field: str | None,
     ) -> ImportResult:
@@ -290,7 +316,12 @@ class ImportService:
 
                 name = _extract_name(row, resolved_name_col, i)
                 field = await svc.create_field(
-                    FieldCreate(name=name, group_id=group_id, geometry_geojson=mp_geojson),
+                    FieldCreate(
+                        name=name,
+                        group_id=group_id,
+                        region_id=region_id,
+                        geometry_geojson=mp_geojson,
+                    ),
                     created_by=created_by,
                 )
                 field_ids.append(field.id)
@@ -307,6 +338,7 @@ class ImportService:
         self,
         path: str,
         group_id: UUID,
+        region_id: UUID,
         created_by: UUID | None,
         name_field: str | None,
         driver: str | None = None,
@@ -315,12 +347,13 @@ class ImportService:
         if driver:
             kwargs["driver"] = driver
         with fiona.open(path, **kwargs) as src:
-            return await self._read_fiona_features(src, group_id, created_by, name_field)
+            return await self._read_fiona_features(src, group_id, region_id, created_by, name_field)
 
     async def _read_fiona_features(
         self,
         src: fiona.Collection,
         group_id: UUID,
+        region_id: UUID,
         created_by: UUID | None,
         name_field: str | None,
     ) -> ImportResult:
@@ -361,7 +394,12 @@ class ImportService:
                 name = _extract_name(props, resolved_name_field, i)
 
                 field = await svc.create_field(
-                    FieldCreate(name=name, group_id=group_id, geometry_geojson=mp_geojson),
+                    FieldCreate(
+                        name=name,
+                        group_id=group_id,
+                        region_id=region_id,
+                        geometry_geojson=mp_geojson,
+                    ),
                     created_by=created_by,
                 )
                 field_ids.append(field.id)

@@ -1,6 +1,7 @@
 """FieldEvent + FieldEventEntry models — 9 event types with versioned sub-entries."""
 
 import uuid
+from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import (
@@ -50,7 +51,13 @@ class FieldEvent(Base, UUIDMixin, TimestampMixin, SoftDeleteMixin):
         index=True,
     )
     crop_year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    operation_date: Mapped[uuid.UUID | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    crop_year_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("crop_years.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    operation_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
